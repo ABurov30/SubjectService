@@ -1,0 +1,51 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/subjects}
+    username: ${DB_USER:subjects}
+    password: ${DB_PASSWORD:subjects}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  liquibase:
+    change-log: classpath:db/changelog/master.yml
+jira:
+  url: ${JIRA_URL:http://localhost:8081}
+  email: ${JIRA_EMAIL:}
+  token: ${JIRA_TOKEN:}
+  project: ${JIRA_PROJECT:TEST}
+  issue-type: ${JIRA_ISSUE_TYPE:Task}
+  connect-timeout: 2s
+  response-timeout: 5s
+  call-timeout: 10s
+  attempt-timeout: 25s
+  max-search-pages: 100
+outbox:
+  polling: 5s
+  batch-size: 50
+  lease: 60s
+  max-retries: 5
+  initial-delay: 5s
+  multiplier: 2
+  max-delay: 5m
+  uncertain-delay: 30s
+  batch-pause: 15s
+  completion-margin: 5s
+  warning-retries: 3
+  warning-age: 1h
+management:
+  metrics:
+    enable:
+      all: false
+  endpoint:
+    metrics:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health
+springdoc:
+  paths-to-match:
+    - /subjects/**
+  swagger-ui:
+    disable-swagger-default-url: true

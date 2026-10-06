@@ -1,0 +1,506 @@
+{
+  "info": {
+    "_postman_id": "534122b2-ffc6-43b7-93ea-c8d5d9706885",
+    "name": "SubjectService",
+    "description": "SubjectService: Subject → Jira через Transactional Outbox. baseUrl по умолчанию http://localhost:8080. Выполнять папку Subjects по порядку начиная с создания: UUID и версия сохраняются в переменных коллекции. Повторный REVIEW проверяет неизменность версии, а REVIEW после возврата в CREATED использует прежнюю outbox-операцию. Успех PATCH подтверждает локальный коммит, а не создание задачи Jira. FAILED — конечный статус, ручной перезапуск Outbox через API отсутствует. Папка Diagnostics проверяет health, редирект и OpenAPI. Авторизация входящего API не предусмотрена; credentials Jira настраиваются на сервере.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "URL сервиса без завершающего слеша. При изменении SUBJECT_PORT обновить порт."
+    },
+    {
+      "key": "subjectName",
+      "value": "Example",
+      "type": "string",
+      "description": "Имя нового Subject, от 1 до 255 символов."
+    },
+    {
+      "key": "subjectId",
+      "value": "",
+      "type": "string",
+      "description": "Автоматически сохраняется после создания Subject."
+    },
+    {
+      "key": "subjectVersion",
+      "value": "",
+      "type": "string",
+      "description": "Последняя версия Subject из успешного ответа; нужна для проверки повторного REVIEW."
+    }
+  ],
+  "item": [
+    {
+      "name": "Subjects",
+      "description": "Последовательность создания и изменения статуса Subject.",
+      "item": [
+        {
+          "name": "Создать Subject",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subjects"
+              ]
+            },
+            "description": "Создаёт Subject в CREATED. UUID из ответа автоматически сохраняется в переменную коллекции subjectId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{subjectName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"subjectId\");",
+                  "pm.collectionVariables.unset(\"subjectVersion\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "  const subject = pm.response.json();",
+                  "  pm.test(\"CREATED и начальная версия 0\", function () {",
+                  "    pm.expect(subject.status).to.eql(\"CREATED\");",
+                  "    pm.expect(subject.version).to.eql(0);",
+                  "    pm.expect(subject.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);",
+                  "  });",
+                  "  pm.collectionVariables.set(\"subjectId\", subject.id);",
+                  "  pm.collectionVariables.set(\"subjectVersion\", subject.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Отправить на рассмотрение",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subjects/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subjects",
+                "status"
+              ]
+            },
+            "description": "Сначала выполнить создание либо задать subjectId вручную. REVIEW регистрирует единственную операцию outbox; остальные статусы не отменяют уже зарегистрированную операцию.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"status\": \"REVIEW\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  const subject = pm.response.json();",
+                  "  pm.test(\"UUID и статус Subject\", function () {",
+                  "    pm.expect(subject.id).to.eql(pm.collectionVariables.get(\"subjectId\"));",
+                  "    pm.expect(subject.status).to.eql(\"REVIEW\");",
+                  "  });",
+                  "  pm.collectionVariables.set(\"subjectVersion\", subject.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Повторить REVIEW без изменения версии",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subjects/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subjects",
+                "status"
+              ]
+            },
+            "description": "Выполнить сразу после первого REVIEW. Subject остаётся в REVIEW; версия не увеличивается и новая outbox-операция не регистрируется. Проверка ответа подтверждает только неизменность версии Subject.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"status\": \"REVIEW\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  const subject = pm.response.json();",
+                  "  pm.test(\"UUID и статус Subject\", function () {",
+                  "    pm.expect(subject.id).to.eql(pm.collectionVariables.get(\"subjectId\"));",
+                  "    pm.expect(subject.status).to.eql(\"REVIEW\");",
+                  "  });",
+                  "  pm.test(\"Версия не изменилась при повторном REVIEW\", function () {",
+                  "    pm.expect(subject.version).to.eql(Number(pm.collectionVariables.get(\"subjectVersion\")));",
+                  "  });",
+                  "  pm.collectionVariables.set(\"subjectVersion\", subject.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Вернуть в CREATED",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subjects/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subjects",
+                "status"
+              ]
+            },
+            "description": "Возвращает Subject в CREATED. Уже зарегистрированная операция создания Jira не отменяется; её результат и история сохраняются.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"status\": \"CREATED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  const subject = pm.response.json();",
+                  "  pm.test(\"UUID и статус Subject\", function () {",
+                  "    pm.expect(subject.id).to.eql(pm.collectionVariables.get(\"subjectId\"));",
+                  "    pm.expect(subject.status).to.eql(\"CREATED\");",
+                  "  });",
+                  "  pm.collectionVariables.set(\"subjectVersion\", subject.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Снова отправить на рассмотрение после CREATED",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subjects/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subjects",
+                "status"
+              ]
+            },
+            "description": "Выполнить после возврата в CREATED. Subject снова переходит в REVIEW; ранее зарегистрированная outbox-операция сохраняет payload, статус и историю. FAILED не перезапускается.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"status\": \"REVIEW\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  const subject = pm.response.json();",
+                  "  pm.test(\"UUID и статус Subject\", function () {",
+                  "    pm.expect(subject.id).to.eql(pm.collectionVariables.get(\"subjectId\"));",
+                  "    pm.expect(subject.status).to.eql(\"REVIEW\");",
+                  "  });",
+                  "  pm.collectionVariables.set(\"subjectVersion\", subject.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Перевести в TERMINATED",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subjects/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subjects",
+                "status"
+              ]
+            },
+            "description": "Переводит Subject в TERMINATED. Уже зарегистрированная операция создания Jira не отменяется.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"status\": \"TERMINATED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  const subject = pm.response.json();",
+                  "  pm.test(\"UUID и статус Subject\", function () {",
+                  "    pm.expect(subject.id).to.eql(pm.collectionVariables.get(\"subjectId\"));",
+                  "    pm.expect(subject.status).to.eql(\"TERMINATED\");",
+                  "  });",
+                  "  pm.collectionVariables.set(\"subjectVersion\", subject.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Diagnostics",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Проверка готовности приложения и PostgreSQL."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Приложение UP\", function () { pm.expect(pm.response.json().status).to.eql(\"UP\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Переход на Swagger",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/html"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": []
+            },
+            "description": "Проверяет редирект на Swagger. Автоматическое следование редиректам отключено для этого запроса."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 302\", function () { pm.response.to.have.status(302); });",
+                  "pm.test(\"Location указывает на Swagger\", function () { pm.expect(pm.response.headers.get(\"Location\")).to.match(/\\/swagger-ui\\.html$/); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "OpenAPI JSON",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v3",
+                "api-docs"
+              ]
+            },
+            "description": "Схема REST API для Swagger."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Схема содержит создание Subject\", function () { pm.expect(pm.response.json().paths[\"/subjects\"].post).to.be.an(\"object\"); });",
+                  "pm.test(\"Схема содержит изменение статуса Subject\", function () { pm.expect(pm.response.json().paths[\"/subjects/status\"].patch).to.be.an(\"object\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

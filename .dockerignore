@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!pom.xml
+!lombok.config
+!config/
+!config/**
+!src/
+!src/**

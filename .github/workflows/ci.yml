@@ -1,0 +1,23 @@
+name: Verify
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - run: mvn --batch-mode clean verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-and-test-reports
+          path: |
+            target/site/jacoco
+            target/surefire-reports
+            target/failsafe-reports

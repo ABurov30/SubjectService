@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-subjects}
+      POSTGRES_USER: ${POSTGRES_USER:-subjects}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-subjects}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  subject-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: subject-service:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '${SUBJECT_PORT:-8080}:8080'
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-subjects}
+      DB_USER: ${POSTGRES_USER:-subjects}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-subjects}
+      JIRA_URL: ${JIRA_URL:-http://host.docker.internal:8081}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_TOKEN: ${JIRA_TOKEN:-}
+      JIRA_PROJECT: ${JIRA_PROJECT:-TEST}
+      JIRA_ISSUE_TYPE: ${JIRA_ISSUE_TYPE:-Task}
+      JIRA_CONNECT_TIMEOUT: ${JIRA_CONNECT_TIMEOUT:-2s}
+      JIRA_RESPONSE_TIMEOUT: ${JIRA_RESPONSE_TIMEOUT:-5s}
+      JIRA_CALL_TIMEOUT: ${JIRA_CALL_TIMEOUT:-10s}
+      JIRA_ATTEMPT_TIMEOUT: ${JIRA_ATTEMPT_TIMEOUT:-25s}
+      JIRA_MAX_SEARCH_PAGES: ${JIRA_MAX_SEARCH_PAGES:-100}
+      OUTBOX_SCHEDULER_ENABLED: ${OUTBOX_SCHEDULER_ENABLED:-true}
+      OUTBOX_POLLING: ${OUTBOX_POLLING:-5s}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-50}
+      OUTBOX_LEASE: ${OUTBOX_LEASE:-60s}
+      OUTBOX_MAX_RETRIES: ${OUTBOX_MAX_RETRIES:-5}
+      OUTBOX_INITIAL_DELAY: ${OUTBOX_INITIAL_DELAY:-5s}
+      OUTBOX_MULTIPLIER: ${OUTBOX_MULTIPLIER:-2}
+      OUTBOX_MAX_DELAY: ${OUTBOX_MAX_DELAY:-5m}
+      OUTBOX_UNCERTAIN_DELAY: ${OUTBOX_UNCERTAIN_DELAY:-30s}
+      OUTBOX_BATCH_PAUSE: ${OUTBOX_BATCH_PAUSE:-15s}
+      OUTBOX_COMPLETION_MARGIN: ${OUTBOX_COMPLETION_MARGIN:-5s}
+      OUTBOX_WARNING_RETRIES: ${OUTBOX_WARNING_RETRIES:-3}
+      OUTBOX_WARNING_AGE: ${OUTBOX_WARNING_AGE:-1h}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+volumes:
+  postgres-data:
