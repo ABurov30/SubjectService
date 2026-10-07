@@ -30,6 +30,8 @@
 
 Обработчик outbox находится в пакете `subjectservice.outbox` и собирается вместе с сервисом. Отдельная outbox-библиотека и токен GitHub Packages для сборки не нужны.
 
+Пакет `subjectservice.outbox` потенциально можно вынести в отдельную библиотеку и переиспользовать в других сервисах.
+
 ```sh
 cp .env.example .env
 mvn spotless:apply
@@ -37,7 +39,13 @@ mvn clean verify
 docker compose up -d --build --wait
 ```
 
-Для настоящей Jira заполните в `.env` значения `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`, `JIRA_PROJECT` и `JIRA_ISSUE_TYPE`. Клиент использует Jira Cloud REST API v3 и Basic Auth с email и API token. По умолчанию адрес Jira указывает на мок на хосте: `http://host.docker.internal:8081`.
+WireMock (`jira-mock`) запускается только при включённом профиле: установите в `.env` `COMPOSE_PROFILES=jira-mock` (уже задано в `.env.example`) или выполните `COMPOSE_PROFILES=jira-mock docker compose up -d --build --wait`. Сервис обращается к нему по адресу `http://jira-mock:8080`, с хоста мок доступен на `http://localhost:8081`. Если `.env` уже существует, установите также `JIRA_URL=http://jira-mock:8080`.
+
+Без `COMPOSE_PROFILES` или с пустым значением мок не запускается. Требуется Docker Compose 2.20.0+ для необязательной зависимости `depends_on.required: false`.
+
+Ответы заданы в `wiremock/mappings`: поиск `POST /rest/api/3/search/jql` возвращает пустой список, создание `POST /rest/api/3/issue` — `201` с задачей `TEST-100`. Это простой мок без хранения задач: поиск всегда пустой, а создание всегда возвращает одинаковый id/key. После изменения файлов перезапустите мок командой `docker compose restart jira-mock`. Полученные запросы можно посмотреть через `curl http://localhost:8081/__admin/requests`.
+
+Для настоящей Jira установите `COMPOSE_PROFILES=` и заполните в `.env` значения `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`, `JIRA_PROJECT` и `JIRA_ISSUE_TYPE`. Если мок уже запущен, сначала остановите его: `docker compose stop jira-mock`. Клиент использует Jira Cloud REST API v3 и Basic Auth с email и API token.
 
 После запуска:
 
@@ -79,6 +87,7 @@ curl -X PATCH http://localhost:8080/subjects/status -H 'Content-Type: applicatio
 | Переменная | По умолчанию | Назначение |
 | --- | --- | --- |
 | `SUBJECT_PORT` / `POSTGRES_PORT` | `8080` / `5432` | Порты сервиса и базы |
+| `JIRA_MOCK_PORT` | `8081` | Порт WireMock на хосте |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `subjects` | Параметры локальной базы |
 | `OUTBOX_SCHEDULER_ENABLED` | `true` | Фоновая отправка; `false` для проверки только REST API |
 | `OUTBOX_POLLING` | `5s` | Период опроса outbox |

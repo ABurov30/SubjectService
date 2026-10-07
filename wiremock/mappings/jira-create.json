@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/rest/api/3/issue"
+  },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "id": "100", "key": "TEST-100" }
+  }
+}
