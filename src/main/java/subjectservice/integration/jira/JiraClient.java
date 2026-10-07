@@ -332,14 +332,15 @@ public class JiraClient {
       Instant after,
       Throwable cause) {
     return new JiraFailure(
-        OutboxOutcome.failure(
-            kind != FailureKind.PERMANENT,
-            called,
-            kind != FailureKind.PERMANENT,
-            kind == FailureKind.UNCERTAIN,
-            status,
-            message,
-            after),
+        OutboxOutcome.builder()
+            .retryable(kind != FailureKind.PERMANENT)
+            .httpCalled(called)
+            .stopBatch(kind != FailureKind.PERMANENT)
+            .uncertain(kind == FailureKind.UNCERTAIN)
+            .httpStatus(status)
+            .message(message)
+            .retryAfter(after)
+            .build(),
         cause);
   }
 

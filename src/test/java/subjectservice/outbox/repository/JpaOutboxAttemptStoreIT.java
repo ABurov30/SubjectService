@@ -34,7 +34,7 @@ import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import subjectservice.outbox.config.OutboxProperties;
 import subjectservice.outbox.dto.OutboxAttempt;
 import subjectservice.outbox.dto.OutboxOutcome;
@@ -42,18 +42,18 @@ import subjectservice.outbox.entity.OutboxEventEntity;
 import subjectservice.outbox.enums.OutboxEventStatus;
 
 class JpaOutboxAttemptStoreIT {
-  @Entity(name = "SupportEvent")
+  @Entity(name = "TestOutboxEvent")
   @Table(name = "events")
   public static class Event extends OutboxEventEntity {}
 
-  static final PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:16-alpine");
+  static final PostgreSQLContainer pg = new PostgreSQLContainer("postgres:16-alpine");
   static LocalContainerEntityManagerFactoryBean factory;
   static EntityManager em;
   static JpaTransactionManager manager;
 
   public interface EventRepository extends JpaRepository<Event, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select e from SupportEvent e where e.id = :id")
+    @Query("select e from TestOutboxEvent e where e.id = :id")
     Optional<Event> lockById(UUID id);
   }
 
@@ -189,8 +189,15 @@ class JpaOutboxAttemptStoreIT {
     var store = store(2);
     UUID id = insert();
     var failure =
-        OutboxOutcome.failure(
-            true, true, true, false, 503, "unavailable", Instant.now().plusSeconds(60));
+        OutboxOutcome.builder()
+            .retryable(true)
+            .httpCalled(true)
+            .stopBatch(true)
+            .uncertain(false)
+            .httpStatus(503)
+            .message("unavailable")
+            .retryAfter(Instant.now().plusSeconds(60))
+            .build();
     for (int i = 1; i <= 2; i++) {
       var a = store.claimNext().orElseThrow();
       assertTrue(store.begin(a));
@@ -210,8 +217,15 @@ class JpaOutboxAttemptStoreIT {
     assertTrue(
         store.complete(
             a,
-            OutboxOutcome.failure(
-                false, true, false, true, 400, "bad request, outcome unknown", null),
+            OutboxOutcome.builder()
+                .retryable(false)
+                .httpCalled(true)
+                .stopBatch(false)
+                .uncertain(true)
+                .httpStatus(400)
+                .message("bad request, outcome unknown")
+                .retryAfter(null)
+                .build(),
             e -> {}));
     assertEquals("FAILED", status(other));
     assertNull(events.findById(other).orElseThrow().getNextRetryAt());
@@ -227,7 +241,17 @@ class JpaOutboxAttemptStoreIT {
     assertTrue(zero.begin(a));
     assertTrue(
         zero.complete(
-            a, OutboxOutcome.failure(true, true, true, true, 500, "uncertain", null), e -> {}));
+            a,
+            OutboxOutcome.builder()
+                .retryable(true)
+                .httpCalled(true)
+                .stopBatch(true)
+                .uncertain(true)
+                .httpStatus(500)
+                .message("uncertain")
+                .retryAfter(null)
+                .build(),
+            e -> {}));
     assertEquals("FAILED", status(id));
     assertTrue(zero.claimNext().isEmpty());
     UUID crash = insert();
@@ -261,7 +285,15 @@ class JpaOutboxAttemptStoreIT {
     assertTrue(
         retry.complete(
             newOwner,
-            OutboxOutcome.failure(true, false, false, false, null, "no HTTP", null),
+            OutboxOutcome.builder()
+                .retryable(true)
+                .httpCalled(false)
+                .stopBatch(false)
+                .uncertain(false)
+                .httpStatus(null)
+                .message("no HTTP")
+                .retryAfter(null)
+                .build(),
             e -> {}));
     assertEquals(0, events.findById(pending).orElseThrow().getRetryCount());
     ready(pending);
@@ -356,7 +388,15 @@ class JpaOutboxAttemptStoreIT {
         assertTrue(
             store.complete(
                 a,
-                OutboxOutcome.failure(true, true, true, false, 503, "unavailable", null),
+                OutboxOutcome.builder()
+                    .retryable(true)
+                    .httpCalled(true)
+                    .stopBatch(true)
+                    .uncertain(false)
+                    .httpStatus(503)
+                    .message("unavailable")
+                    .retryAfter(null)
+                    .build(),
                 e -> {}));
         assertEquals(count, events.findById(id).orElseThrow().getAttemptCount());
         assertEquals(count, events.findById(id).orElseThrow().getRetryCount());

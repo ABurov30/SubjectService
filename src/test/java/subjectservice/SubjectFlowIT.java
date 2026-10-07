@@ -53,7 +53,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import subjectservice.entity.Subject;
 import subjectservice.entity.SubjectServiceOutbox;
 import subjectservice.enums.SubjectStatus;
@@ -84,7 +84,7 @@ import subjectservice.service.SubjectService;
 @AutoConfigureMockMvc
 @Import(SubjectFlowIT.CoordinationConfig.class)
 class SubjectFlowIT {
-  static final PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:16-alpine");
+  static final PostgreSQLContainer pg = new PostgreSQLContainer("postgres:16-alpine");
   static final WireMockServer jira = new WireMockServer(0);
   static volatile UUID coordinatedId;
   static volatile CyclicBarrier reads;

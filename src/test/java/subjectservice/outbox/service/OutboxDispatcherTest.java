@@ -65,8 +65,15 @@ class OutboxDispatcherTest {
         attempt -> {
           calls.incrementAndGet();
           return new OutboxDispatcher.Delivery<>(
-              OutboxOutcome.failure(
-                  true, true, true, false, 429, "rate limit", clock.instant().plusSeconds(100)),
+              OutboxOutcome.builder()
+                  .retryable(true)
+                  .httpCalled(true)
+                  .stopBatch(true)
+                  .uncertain(false)
+                  .httpStatus(429)
+                  .message("rate limit")
+                  .retryAfter(clock.instant().plusSeconds(100))
+                  .build(),
               e -> {});
         });
     assertEquals(1, calls.get());

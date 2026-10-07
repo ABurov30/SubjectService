@@ -36,10 +36,21 @@ class JiraClientTest {
   void start() {
     server = new WireMockServer(0);
     server.start();
-    client = client(10, Duration.ofSeconds(2));
+    client = client(10, Duration.ofSeconds(30));
   }
 
   JiraClient client(int pages, Duration attempt) {
+    return client(
+        pages, attempt, Duration.ofSeconds(5), Duration.ofSeconds(5), Duration.ofSeconds(10));
+  }
+
+  JiraClient timeoutClient(int pages, Duration attempt) {
+    return client(
+        pages, attempt, Duration.ofMillis(200), Duration.ofMillis(300), Duration.ofMillis(500));
+  }
+
+  JiraClient client(
+      int pages, Duration attempt, Duration connect, Duration response, Duration call) {
     return new JiraClient(
         new JiraProperties(
             URI.create(server.baseUrl()),
@@ -47,9 +58,9 @@ class JiraClientTest {
             "secret",
             "TEST",
             "Task",
-            Duration.ofMillis(200),
-            Duration.ofMillis(300),
-            Duration.ofMillis(500),
+            connect,
+            response,
+            call,
             attempt,
             pages),
         new ObjectMapper(),
@@ -117,7 +128,8 @@ class JiraClientTest {
     search(
         "{\"issues\":[{\"id\":\"1\",\"key\":\"TEST-1\"},{\"id\":\"2\",\"key\":\"TEST-2\"}],\"isLast\":true}");
     var ex = assertThrows(JiraFailure.class, () -> client.resolve(payload, () -> true));
-    assertFalse(ex.outcome().retryable());
+    assertFalse(ex.outcome().retryable(), ex.outcome().message());
+    assertEquals(200, ex.outcome().httpStatus());
     assertTrue(ex.outcome().httpCalled());
     server.verify(0, postRequestedFor(urlEqualTo("/rest/api/3/issue")));
   }
@@ -148,7 +160,9 @@ class JiraClientTest {
   }
 
   @Test
-  void timeoutsAndUnparseableCreateResultAreUncertain() {
+  void creationTimeoutIsUncertain() throws Exception {
+    client.close();
+    client = timeoutClient(10, Duration.ofSeconds(2));
     search("{\"issues\":[],\"isLast\":true}");
     server.stubFor(
         post(urlEqualTo("/rest/api/3/issue"))
@@ -157,6 +171,11 @@ class JiraClientTest {
         assertThrows(JiraFailure.class, () -> client.resolve(payload, () -> true))
             .outcome()
             .uncertain());
+  }
+
+  @Test
+  void unparseableCreateResultsAreUncertain() {
+    search("{\"issues\":[],\"isLast\":true}");
     server.stubFor(
         post(urlEqualTo("/rest/api/3/issue"))
             .willReturn(aResponse().withStatus(201).withBody("not json")));
@@ -189,14 +208,14 @@ class JiraClientTest {
   @Test
   void pageLimitAndTotalDeadlineBoundAttempt() throws Exception {
     client.close();
-    client = client(1, Duration.ofSeconds(2));
+    client = client(1, Duration.ofSeconds(30));
     search("{\"issues\":[],\"isLast\":false,\"nextPageToken\":\"next\"}");
     assertFalse(
         assertThrows(JiraFailure.class, () -> client.resolve(payload, () -> true))
             .outcome()
             .retryable());
     client.close();
-    client = client(10, Duration.ofMillis(500));
+    client = timeoutClient(10, Duration.ofMillis(500));
     server.stubFor(
         post(urlEqualTo("/rest/api/3/search/jql"))
             .willReturn(aResponse().withFixedDelay(1000).withBody("{}")));
@@ -218,7 +237,9 @@ class JiraClientTest {
   }
 
   @Test
-  void fullCallTimeoutStopsSlowBodyEvenWhenSocketReadsKeepArriving() {
+  void fullCallTimeoutStopsSlowBodyEvenWhenSocketReadsKeepArriving() throws Exception {
+    client.close();
+    client = timeoutClient(10, Duration.ofSeconds(2));
     server.stubFor(
         post(urlEqualTo("/rest/api/3/search/jql"))
             .willReturn(
@@ -236,7 +257,7 @@ class JiraClientTest {
   @Test
   void totalAttemptDeadlineIncludesAllSearchPages() throws Exception {
     client.close();
-    client = client(10, Duration.ofMillis(500));
+    client = timeoutClient(10, Duration.ofMillis(500));
     server.stubFor(
         post(urlEqualTo("/rest/api/3/search/jql"))
             .atPriority(10)
@@ -266,7 +287,9 @@ class JiraClientTest {
   }
 
   @Test
-  void slowErrorBodyKeepsKnownPermanentHttpStatus() {
+  void slowErrorBodyKeepsKnownPermanentHttpStatus() throws Exception {
+    client.close();
+    client = timeoutClient(10, Duration.ofSeconds(2));
     search("{\"issues\":[],\"isLast\":true}");
     server.stubFor(
         post(urlEqualTo("/rest/api/3/issue"))
