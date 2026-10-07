@@ -1,6 +1,5 @@
 --liquibase formatted sql
 --changeset aburov:1
---validCheckSum: 9:34516873a3d8849a77788f455e3fb390
 CREATE TABLE subjects (id UUID PRIMARY KEY, name VARCHAR(255) NOT NULL, status VARCHAR(20) NOT NULL CHECK (status IN ('CREATED','REVIEW','TERMINATED')), version BIGINT NOT NULL DEFAULT 0);
 
 CREATE TABLE subject_service_outbox (
@@ -16,6 +15,3 @@ CREATE TABLE subject_service_outbox (
 CREATE UNIQUE INDEX uq_subject_outbox ON subject_service_outbox(subject_id);
 CREATE INDEX idx_outbox_ready ON subject_service_outbox(next_retry_at,created_at,id) WHERE status='PENDING';
 CREATE INDEX idx_outbox_expired ON subject_service_outbox(locked_until,created_at,id) WHERE status='IN_PROGRESS';
-
---changeset aburov:2
-DROP TABLE IF EXISTS subject_service_outbox_attempts;

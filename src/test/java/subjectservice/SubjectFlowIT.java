@@ -468,13 +468,17 @@ class SubjectFlowIT {
     jira.verify(1, postRequestedFor(urlEqualTo("/rest/api/3/issue")));
   }
 
-  @Test
-  void permanentFailureRemainsFailedAfterRepeatedReview() throws Exception {
+  @ParameterizedTest
+  @ValueSource(ints = {401, 403})
+  void permanentFailureRemainsFailedAfterRepeatedReview(int responseStatus) throws Exception {
     UUID id = submit();
     jira.stubFor(
-        post(urlEqualTo("/rest/api/3/search/jql")).willReturn(aResponse().withStatus(403)));
+        post(urlEqualTo("/rest/api/3/search/jql"))
+            .willReturn(aResponse().withStatus(responseStatus)));
     worker.run();
     assertEquals("FAILED", eventStatus(id));
+    assertEquals(responseStatus, event(id).getHttpStatus());
+    assertNull(event(id).getNextRetryAt());
     service.change(id, SubjectStatus.CREATED);
     service.change(id, SubjectStatus.REVIEW);
     worker.run();
@@ -624,6 +628,9 @@ class SubjectFlowIT {
         post(urlEqualTo("/rest/api/3/issue")).willReturn(aResponse().withStatus(responseStatus)));
     worker.run();
     assertEquals("FAILED", eventStatus(id));
+    assertEquals(1, attempts(id));
+    assertEquals(responseStatus, event(id).getHttpStatus());
+    assertNull(event(id).getNextRetryAt());
     mvc.perform(
             org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
                 "/subjects/" + id + "/jira/retry"))

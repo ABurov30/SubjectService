@@ -100,7 +100,7 @@ class JiraClientTest {
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {400, 429, 503})
+  @ValueSource(ints = {400, 401, 429, 503})
   void classifiesSearchErrors(int status) {
     server.stubFor(
         post(urlEqualTo("/rest/api/3/search/jql"))
@@ -114,7 +114,7 @@ class JiraClientTest {
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {400, 429, 503})
+  @ValueSource(ints = {400, 401, 429, 503})
   void classifiesCreationErrorsAndUncertainty(int status) {
     search("{\"issues\":[],\"isLast\":true}");
     server.stubFor(

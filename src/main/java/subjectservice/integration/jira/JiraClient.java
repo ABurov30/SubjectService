@@ -32,6 +32,7 @@ import org.springframework.stereotype.Component;
 import subjectservice.dto.Issue;
 import subjectservice.dto.Response;
 import subjectservice.enums.FailureKind;
+import subjectservice.enums.JiraHttpStatus;
 import subjectservice.outbox.dto.OutboxOutcome;
 
 @Component
@@ -280,12 +281,12 @@ public class JiraClient {
 
   private JiraFailure httpFailure(
       int status, String retryHeader, boolean creating, Throwable cause) {
-    boolean retry = status == 429 || status >= 500;
-    boolean uncertain = creating && status >= 500;
+    JiraHttpStatus httpStatus = JiraHttpStatus.from(status);
+    boolean uncertain = creating && httpStatus.isCreationUncertain();
     FailureKind kind = FailureKind.PERMANENT;
     if (uncertain) {
       kind = FailureKind.UNCERTAIN;
-    } else if (retry) {
+    } else if (httpStatus.isRetryable()) {
       kind = FailureKind.RETRYABLE;
     }
     return failure(
