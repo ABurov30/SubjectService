@@ -1,6 +1,5 @@
 package subjectservice.controller;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.OptimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -14,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import subjectservice.dto.ApiError;
 import subjectservice.enums.ApiErrorCode;
 import subjectservice.exception.SubjectNotFoundException;
 import subjectservice.exception.SubjectValidationException;
@@ -65,13 +65,4 @@ public class RestErrors {
                 Instant.now(),
                 request.getHeader("X-Correlation-Id")));
   }
-
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public record ApiError(
-      int status,
-      ApiErrorCode code,
-      String message,
-      String path,
-      Instant timestamp,
-      String correlationId) {}
 }

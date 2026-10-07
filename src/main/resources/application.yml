@@ -24,7 +24,7 @@ outbox:
   polling: 5s
   batch-size: 50
   lease: 60s
-  max-retries: 5
+  max-retries: -1
   initial-delay: 5s
   multiplier: 2
   max-delay: 5m

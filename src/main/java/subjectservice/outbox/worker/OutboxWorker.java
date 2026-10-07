@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import subjectservice.dto.Issue;
 import subjectservice.entity.SubjectServiceOutbox;
 import subjectservice.integration.jira.JiraClient;
 import subjectservice.integration.jira.JiraFailure;
@@ -45,7 +46,7 @@ public class OutboxWorker {
       return new OutboxDispatcher.Delivery<>(OutboxOutcome.published(), e -> {});
     }
     try {
-      JiraClient.Issue issue = jira.resolve(event.getPayload(), () -> store.renew(attempt));
+      Issue issue = jira.resolve(event.getPayload(), () -> store.renew(attempt));
       return new OutboxDispatcher.Delivery<>(
           OutboxOutcome.published(),
           e -> {

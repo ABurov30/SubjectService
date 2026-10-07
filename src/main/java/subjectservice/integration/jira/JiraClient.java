@@ -29,6 +29,9 @@ import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.stereotype.Component;
+import subjectservice.dto.Issue;
+import subjectservice.dto.Response;
+import subjectservice.enums.FailureKind;
 import subjectservice.outbox.dto.OutboxOutcome;
 
 @Component
@@ -62,10 +65,6 @@ public class JiraClient {
                     .build())
             .build();
   }
-
-  public record Issue(String id, String key) {}
-
-  private record Response(int status, String body, String retryAfter) {}
 
   private static final class Attempt {
     final long deadline;
@@ -316,12 +315,6 @@ public class JiraClient {
         return null;
       }
     }
-  }
-
-  private enum FailureKind {
-    PERMANENT,
-    RETRYABLE,
-    UNCERTAIN
   }
 
   private JiraFailure failure(

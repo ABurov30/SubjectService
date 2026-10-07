@@ -58,6 +58,14 @@ public class SubjectService {
         subject.getId(), subject.getName(), subject.getStatus(), subject.getVersion());
   }
 
+  @Transactional
+  public boolean retryJira(UUID id) {
+    if (!subjects.existsById(id)) {
+      throw new SubjectNotFoundException(id);
+    }
+    return outbox.retryFailed(id) == 1;
+  }
+
   private void register(Subject s) {
     String payload;
     try {

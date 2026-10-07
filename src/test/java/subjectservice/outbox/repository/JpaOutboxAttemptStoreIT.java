@@ -378,6 +378,48 @@ class JpaOutboxAttemptStoreIT {
   }
 
   @Test
+  void unlimitedRetriesRecoverExpiredLeaseAndSaturateCounters() {
+    var store = store(-1);
+    UUID id = insert();
+    update(
+        id,
+        e -> {
+          e.setAttemptCount(Integer.MAX_VALUE);
+          e.setRetryCount(Integer.MAX_VALUE);
+        });
+    var old = store.claimNext().orElseThrow();
+    assertTrue(store.begin(old));
+    update(id, e -> e.setLockedUntil(Instant.now().minusSeconds(1)));
+    assertEquals(1, store.recover());
+    assertEquals("PENDING", status(id));
+    assertFalse(store.complete(old, OutboxOutcome.published(), e -> {}));
+    ready(id);
+    var next = store.claimNext().orElseThrow();
+    assertTrue(store.begin(next));
+    assertTrue(
+        store.complete(
+            next,
+            OutboxOutcome.builder()
+                .retryable(true)
+                .httpCalled(true)
+                .stopBatch(true)
+                .uncertain(false)
+                .httpStatus(503)
+                .message("unavailable")
+                .build(),
+            e -> {}));
+    assertEquals("PENDING", status(id));
+    Event event = events.findById(id).orElseThrow();
+    assertEquals(Integer.MAX_VALUE, event.getAttemptCount());
+    assertEquals(Integer.MAX_VALUE, event.getRetryCount());
+    ready(id);
+    var last = store.claimNext().orElseThrow();
+    assertTrue(store.begin(last));
+    assertTrue(store.complete(last, OutboxOutcome.published(), e -> {}));
+    assertEquals("PUBLISHED", status(id));
+  }
+
+  @Test
   void zeroAndTwoRetriesHaveFiniteBudgets() {
     for (int retries : new int[] {0, 2}) {
       UUID id = insert();

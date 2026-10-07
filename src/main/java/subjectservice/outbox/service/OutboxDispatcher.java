@@ -58,12 +58,15 @@ public final class OutboxDispatcher<E extends OutboxEventEntity> {
               Delivery<E> d = sender.apply(a);
               boolean saved = store.complete(a, d.outcome(), d.result());
               if (saved && !d.outcome().success()) {
-                if (!d.outcome().retryable() || a.event().getAttemptCount() >= p.maxAttempts()) {
+                if (!d.outcome().retryable() || !p.canAttempt(a.event().getAttemptCount())) {
                   log.error("Outbox FAILED event={} reason={}", a.eventId(), d.outcome().message());
                 }
               }
               int completedFailures =
-                  a.event().getRetryCount() + (d.outcome().httpCalled() ? 1 : 0);
+                  (int)
+                      Math.min(
+                          Integer.MAX_VALUE,
+                          (long) a.event().getRetryCount() + (d.outcome().httpCalled() ? 1 : 0));
               if (saved
                   && !d.outcome().success()
                   && (completedFailures >= p.warningRetries()

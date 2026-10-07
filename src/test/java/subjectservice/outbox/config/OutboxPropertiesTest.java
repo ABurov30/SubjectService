@@ -31,7 +31,10 @@ class OutboxPropertiesTest {
     assertEquals(Duration.ofMillis(10), p.backoff(1));
     assertEquals(Duration.ofMillis(30), p.backoff(2));
     assertEquals(Duration.ofMillis(50), p.backoff(100));
-    assertEquals(6, OutboxProperties.defaults().maxAttempts());
+    assertEquals(-1, OutboxProperties.defaults().maxAttempts());
+    org.junit.jupiter.api.Assertions.assertTrue(
+        OutboxProperties.defaults().canAttempt(Integer.MAX_VALUE));
+    assertEquals(Duration.ofMinutes(5), OutboxProperties.defaults().backoff(Integer.MAX_VALUE));
   }
 
   @Test
@@ -39,7 +42,7 @@ class OutboxPropertiesTest {
     for (var setting :
         Map.of(
                 "max-retries",
-                "-1",
+                "-2",
                 "batch-size",
                 "0",
                 "lease",

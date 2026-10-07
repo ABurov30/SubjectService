@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import jakarta.persistence.EntityManager;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -60,6 +61,7 @@ import subjectservice.enums.SubjectStatus;
 import subjectservice.integration.jira.JiraClient;
 import subjectservice.outbox.config.OutboxProperties;
 import subjectservice.outbox.dto.OutboxOutcome;
+import subjectservice.outbox.repository.JpaOutboxAttemptStore;
 import subjectservice.outbox.repository.OutboxAttemptStore;
 import subjectservice.outbox.service.OutboxDispatcher;
 import subjectservice.outbox.worker.OutboxWorker;
@@ -136,6 +138,7 @@ class SubjectFlowIT {
     }
   }
 
+  @Autowired EntityManager em;
   @Autowired MockMvc mvc;
   @Autowired SubjectService service;
   @Autowired SubjectRepository subjects;
@@ -560,6 +563,116 @@ class SubjectFlowIT {
     jira.verify(3, postRequestedFor(urlEqualTo("/rest/api/3/search/jql")));
     assertEquals(responseStatus, event(id).getHttpStatus());
     assertEquals(3, event(id).getRetryCount());
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {503, 429})
+  void unlimitedRetriesPublishAfterLongOutage(int responseStatus) {
+    var unlimited =
+        new OutboxProperties(
+            p.polling(),
+            p.batchSize(),
+            p.lease(),
+            -1,
+            p.initialDelay(),
+            p.multiplier(),
+            p.maxDelay(),
+            p.uncertainDelay(),
+            p.batchPause(),
+            p.completionMargin(),
+            p.warningRetries(),
+            p.warningAge());
+    var unlimitedStore =
+        new JpaOutboxAttemptStore<>(
+            em, manager, SubjectServiceOutbox.class, "subject_service_outbox", unlimited);
+    UUID id = submit();
+    jira.stubFor(
+        post(urlEqualTo("/rest/api/3/search/jql"))
+            .willReturn(aResponse().withStatus(responseStatus)));
+    for (int i = 1; i <= 8; i++) {
+      new OutboxWorker(
+              new OutboxDispatcher<>(unlimitedStore, unlimited, manager, clock),
+              unlimitedStore,
+              client)
+          .run();
+      assertEquals("PENDING", eventStatus(id));
+      assertEquals(i, attempts(id));
+      assertNotNull(event(id).getNextRetryAt());
+      ready(id);
+    }
+    searchEmpty();
+    create();
+    new OutboxWorker(
+            new OutboxDispatcher<>(unlimitedStore, unlimited, manager, clock),
+            unlimitedStore,
+            client)
+        .run();
+    assertEquals("PUBLISHED", eventStatus(id));
+    assertEquals(9, attempts(id));
+    jira.verify(1, postRequestedFor(urlEqualTo("/rest/api/3/issue")));
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {400, 401, 403})
+  void retryEndpointRequeuesOnlyFailedAndKeepsOriginalOperation(int responseStatus)
+      throws Exception {
+    UUID id = submit();
+    UUID originalEvent = eventId(id);
+    Map<String, Object> originalPayload = event(id).getPayload();
+    searchEmpty();
+    jira.stubFor(
+        post(urlEqualTo("/rest/api/3/issue")).willReturn(aResponse().withStatus(responseStatus)));
+    worker.run();
+    assertEquals("FAILED", eventStatus(id));
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/subjects/" + id + "/jira/retry"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.retryScheduled").value(true));
+    assertEquals("PENDING", eventStatus(id));
+    assertEquals(0, attempts(id));
+    assertEquals(originalEvent, eventId(id));
+    assertEquals(originalPayload, event(id).getPayload());
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/subjects/" + id + "/jira/retry"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.retryScheduled").value(false));
+    create();
+    worker.run();
+    assertEquals("PUBLISHED", eventStatus(id));
+    assertFalse(service.retryJira(id));
+    assertEquals("PUBLISHED", eventStatus(id));
+    assertEquals(1, outboxRepository.countBySubjectId(id));
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/subjects/" + UUID.randomUUID() + "/jira/retry"))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void concurrentRetrySchedulesOnceAndPreservesUncertaintyDelay() throws Exception {
+    UUID id = submit();
+    updateEvent(
+        id,
+        e -> {
+          e.setOutboxEventStatus(subjectservice.outbox.enums.OutboxEventStatus.FAILED);
+          e.setUncertainUntil(Instant.now().plusSeconds(60));
+        });
+    Instant uncertainUntil = event(id).getUncertainUntil();
+    var pool = Executors.newFixedThreadPool(2);
+    try {
+      var first = pool.submit(() -> service.retryJira(id));
+      var second = pool.submit(() -> service.retryJira(id));
+      assertTrue(first.get(10, TimeUnit.SECONDS) != second.get(10, TimeUnit.SECONDS));
+    } finally {
+      pool.shutdownNow();
+    }
+    assertEquals("PENDING", eventStatus(id));
+    assertEquals(uncertainUntil, event(id).getNextRetryAt());
+    assertEquals(uncertainUntil, event(id).getUncertainUntil());
+    worker.run();
+    assertTrue(jira.getAllServeEvents().isEmpty());
   }
 
   @Test

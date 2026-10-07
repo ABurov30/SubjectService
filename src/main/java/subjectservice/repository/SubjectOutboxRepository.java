@@ -20,6 +20,21 @@ public interface SubjectOutboxRepository extends JpaRepository<SubjectServiceOut
   @Query(
       value =
           """
+          UPDATE subject_service_outbox
+          SET status='PENDING', attempt_count=0, retry_count=0,
+              next_retry_at=GREATEST(clock_timestamp(), uncertain_until),
+              error_message=NULL, http_status=NULL,
+              locked_by=NULL, locked_at=NULL, locked_until=NULL
+          WHERE subject_id=:subjectId AND status='FAILED'
+          """,
+      nativeQuery = true)
+  int retryFailed(@Param("subjectId") UUID subjectId);
+
+  @Modifying
+  @Transactional(propagation = Propagation.MANDATORY)
+  @Query(
+      value =
+          """
           INSERT INTO subject_service_outbox
             (id, subject_id, aggregate_type, event_type, event_key, payload, status,
              attempt_count, retry_count, created_at)

@@ -96,14 +96,16 @@ public final class JpaOutboxAttemptStore<E extends OutboxEventEntity>
                       em.createNativeQuery(
                           "UPDATE "
                               + table
-                              + " SET attempt_count=attempt_count+1"
+                              + " SET attempt_count=CASE WHEN attempt_count<2147483647 THEN attempt_count+1 ELSE attempt_count END"
                               + owned()
-                              + " AND attempt_count<:max"),
+                              + " AND (:max=-1 OR attempt_count<:max)"),
                       a)
                   .setParameter("max", p.maxAttempts())
                   .executeUpdate();
           if (updated == 1) {
-            a.event().setAttemptCount(a.event().getAttemptCount() + 1);
+            a.event()
+                .setAttemptCount(
+                    (int) Math.min(Integer.MAX_VALUE, (long) a.event().getAttemptCount() + 1));
             return true;
           }
           int exhausted =
@@ -113,7 +115,7 @@ public final class JpaOutboxAttemptStore<E extends OutboxEventEntity>
                               + table
                               + " SET status='FAILED',error_message='Attempt budget exhausted',next_retry_at=NULL,locked_by=NULL,locked_until=NULL,locked_at=NULL"
                               + owned()
-                              + " AND attempt_count>=:max"),
+                              + " AND :max>=0 AND attempt_count>=:max"),
                       a)
                   .setParameter("max", p.maxAttempts())
                   .executeUpdate();
@@ -148,8 +150,8 @@ public final class JpaOutboxAttemptStore<E extends OutboxEventEntity>
               em.createNativeQuery(
                       "UPDATE "
                           + table
-                          + " SET status=CASE WHEN attempt_count>=:max THEN 'FAILED' ELSE 'PENDING' END,"
-                          + " next_retry_at=CASE WHEN attempt_count>=:max THEN NULL ELSE GREATEST(next_retry_at,clock_timestamp()+(:delay*INTERVAL '1 millisecond')) END,"
+                          + " SET status=CASE WHEN :max>=0 AND attempt_count>=:max THEN 'FAILED' ELSE 'PENDING' END,"
+                          + " next_retry_at=CASE WHEN :max>=0 AND attempt_count>=:max THEN NULL ELSE GREATEST(next_retry_at,clock_timestamp()+(:delay*INTERVAL '1 millisecond')) END,"
                           + " uncertain_until=GREATEST(uncertain_until,clock_timestamp()+(:delay*INTERVAL '1 millisecond')),"
                           + " error_message='Lease expired; external result may be unknown',locked_by=NULL,locked_at=NULL,locked_until=NULL"
                           + " WHERE id IN (SELECT id FROM "
@@ -196,14 +198,14 @@ public final class JpaOutboxAttemptStore<E extends OutboxEventEntity>
             e.setUncertainUntil(null);
           } else {
             if (o.httpCalled()) {
-              e.setRetryCount(e.getRetryCount() + 1);
+              e.setRetryCount((int) Math.min(Integer.MAX_VALUE, (long) e.getRetryCount() + 1));
             }
             e.setErrorMessage(o.message());
             e.setHttpStatus(o.httpStatus());
             if (o.uncertain()) {
               e.setUncertainUntil(now.plus(p.uncertainDelay()));
             }
-            if (o.retryable() && e.getAttemptCount() < p.maxAttempts()) {
+            if (o.retryable() && p.canAttempt(e.getAttemptCount())) {
               e.setOutboxEventStatus(OutboxEventStatus.PENDING);
               Instant next = now.plus(p.backoff(e.getAttemptCount()));
               if (o.retryAfter() != null && o.retryAfter().isAfter(next)) {

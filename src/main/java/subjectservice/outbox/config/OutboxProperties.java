@@ -9,7 +9,7 @@ public record OutboxProperties(
     @DefaultValue("5s") Duration polling,
     @DefaultValue("50") int batchSize,
     @DefaultValue("60s") Duration lease,
-    @DefaultValue("5") int maxRetries,
+    @DefaultValue("-1") int maxRetries,
     @DefaultValue("5s") Duration initialDelay,
     @DefaultValue("2") double multiplier,
     @DefaultValue("5m") Duration maxDelay,
@@ -35,7 +35,7 @@ public record OutboxProperties(
       }
     }
     if (batchSize < 1
-        || maxRetries < 0
+        || maxRetries < -1
         || maxRetries == Integer.MAX_VALUE
         || warningRetries < 0
         || !Double.isFinite(multiplier)
@@ -46,7 +46,11 @@ public record OutboxProperties(
   }
 
   public int maxAttempts() {
-    return maxRetries + 1;
+    return maxRetries == -1 ? -1 : maxRetries + 1;
+  }
+
+  public boolean canAttempt(int attemptCount) {
+    return maxRetries == -1 || attemptCount < maxAttempts();
   }
 
   public Duration backoff(int attemptCount) {
@@ -62,7 +66,7 @@ public record OutboxProperties(
         Duration.ofSeconds(5),
         50,
         Duration.ofSeconds(60),
-        5,
+        -1,
         Duration.ofSeconds(5),
         2,
         Duration.ofMinutes(5),
